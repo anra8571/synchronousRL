@@ -5,8 +5,8 @@ import tensorflow as tf
 from sklearn.model_selection import train_test_split
 import datetime
 
-
 def main():
+    # Read in data
     n0523_df = pd.read_csv('./data/n0523.csv')
     data = n0523_df.values
 
@@ -14,15 +14,16 @@ def main():
     sample[np.where(sample == 1)[0]] = 0
     sample[np.where(sample == 2)[0]] = 0
 
-    model = build_model()
-    
+    # Initialize Q Model
+    Q_model =  build_model()
+
     # Build X data slices from flat array:
     n_slice = 12
     x_data = []
     for i in range(len(sample)-n_slice+1):
         x_data.append(sample[i:(i+n_slice)])
 
-    # Create y_data for expected output    
+    # Create y_data to be expected Q values    
     y_data = create_expected(sample[:len(sample)-n_slice+1])
 
     # Ensure everything is in numpy
@@ -33,19 +34,33 @@ def main():
     test_percent = 0.3
     X_train, X_test, y_train, y_test = train_test_split(x_data, y_data, test_size=test_percent, random_state=1)
 
+    # Loop vars
+    error = np.inf
+    tol = 0.05
+    i_stop = 40    # Max number of epochs
+    iterations = 0
+    np.random.seed(23)
 
+    while error > tol and iterations < i_stop:
+        iterations += 1
+        # Grab a new state slice
+        slice_indexes = np.random.choice(range(len(X_train)),2000,replace=False)
+        X_slice = X_train[slice_indexes]
+        y_slice = y_train[slice_indexes]
 
-    # Train & Evaluate Model:
-    num_epochs = 30
-    log_dir = "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
+        # Model metrics
+        log_dir = "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
 
-    history = model.fit(X_train, y_train, epochs=num_epochs, batch_size = 100, callbacks=[tensorboard_callback])
-
-    print(model.evaluate(X_test, y_test))
-    #0.983238697052002 accuracy
+        # Update Q_model
+        history = Q_model.fit(X_slice, y_slice, epochs=1, batch_size = 10, callbacks=[tensorboard_callback])
+        # This will run 32 iterations of Q learning before updating the Q model
+        
+        # If DQN learning loss is small, end
+        error = history.history['loss'][0]
+    
+    print(Q_model.evaluate(X_test, y_test))
     #tensorboard --logdir logs/fit
-
 
 def build_model():
     model = tf.keras.Sequential()
@@ -58,7 +73,6 @@ def build_model():
   loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
   metrics=['sparse_categorical_accuracy'])
     return model
-
 
 def create_expected(sample):
     expected = np.zeros(len(sample))
